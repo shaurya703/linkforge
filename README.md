@@ -1,5 +1,8 @@
 # linkforge
 
+[![CI](https://github.com/shaurya703/linkforge/actions/workflows/ci.yml/badge.svg)](https://github.com/shaurya703/linkforge/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A production-minded URL shortener in Go, built to demonstrate **backend systems
 engineering** — caching, rate limiting, async processing, and observability —
 rather than UI. The emphasis is correctness, low-latency reads, and operational
