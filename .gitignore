@@ -1,0 +1,21 @@
+# Binaries
+/bin/
+linkforge
+*.exe
+*.test
+*.out
+
+# Env / secrets
+.env
+*.local
+
+# Go build/test cache artifacts
+/vendor/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Safety net: never commit local agent/tooling config
+.claude/
