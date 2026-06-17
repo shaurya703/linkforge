@@ -1,0 +1,47 @@
+# Render Blueprint — one-click deploy of linkforge + Postgres + Key Value (Redis).
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Deploy: push this repo to GitHub, then on Render → New → Blueprint → pick the
+# repo. Render reads this file and provisions all three resources, wiring the
+# connection strings into the web service automatically. No secrets to copy.
+#
+# The app needs no HTTP_ADDR or BASE_URL here: it binds $PORT (injected by Render)
+# and derives its public BASE_URL from $RENDER_EXTERNAL_URL at runtime.
+
+services:
+  - type: web
+    name: linkforge
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: POSTGRES_DSN
+        fromDatabase:
+          name: linkforge-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: linkforge-kv
+          property: connectionString
+      - key: LOG_LEVEL
+        value: info
+
+  # Render Key Value = managed Redis. Internal-only (empty allow list); the app
+  # reaches it over the private network via REDIS_URL above.
+  - type: keyvalue
+    name: linkforge-kv
+    plan: free
+    region: oregon
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+databases:
+  - name: linkforge-db
+    plan: free
+    region: oregon
+    databaseName: linkforge
+    user: linkforge

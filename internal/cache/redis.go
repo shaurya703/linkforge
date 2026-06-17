@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -31,9 +32,23 @@ type Redis struct {
 	hits, misses interface{ Inc() } // prometheus counters (decoupled via tiny interface)
 }
 
-// NewClient builds a go-redis client and verifies connectivity.
-func NewClient(ctx context.Context, addr string, db int) (*redis.Client, error) {
-	c := redis.NewClient(&redis.Options{Addr: addr, DB: db})
+// NewClient builds a go-redis client and verifies connectivity. When url is
+// non-empty it is parsed as a full connection URL (redis:// or rediss://),
+// carrying host, password, db, and TLS — the form managed providers hand out.
+// Otherwise it falls back to a plain host:port addr with the given db (local dev
+// and docker-compose).
+func NewClient(ctx context.Context, url, addr string, db int) (*redis.Client, error) {
+	var opts *redis.Options
+	if url != "" {
+		parsed, err := redis.ParseURL(url)
+		if err != nil {
+			return nil, fmt.Errorf("parse REDIS_URL: %w", err)
+		}
+		opts = parsed
+	} else {
+		opts = &redis.Options{Addr: addr, DB: db}
+	}
+	c := redis.NewClient(opts)
 	if err := c.Ping(ctx).Err(); err != nil {
 		_ = c.Close()
 		return nil, err

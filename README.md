@@ -240,6 +240,27 @@ make run                       # go run ./cmd/server (uses localhost defaults)
 
 Configuration is via environment variables — see [`.env.example`](.env.example).
 
+A small self-contained web UI (shorten a link, copy it, look up click stats) is
+served at `/` — embedded in the binary, so there's still no separate frontend
+build or deploy step.
+
+## Deploying
+
+The binary is twelve-factor: it binds `$PORT` and reads `POSTGRES_DSN` / `REDIS_URL`
+(a full `redis://`|`rediss://` URL, so managed Redis with auth + TLS works) from
+the environment, deriving its public `BASE_URL` from `$RENDER_EXTERNAL_URL` when set.
+
+[`render.yaml`](render.yaml) is a [Render Blueprint](https://render.com/docs/blueprint-spec)
+that provisions the web service, Postgres, and a Key Value (Redis) store and wires
+the connection strings together automatically:
+
+```
+Render → New → Blueprint → select this repo → Apply
+```
+
+It deploys anywhere that runs the Docker image with those env vars set (Railway,
+Fly.io, a VPS) — Render is just the turnkey path.
+
 ## Testing
 
 ```bash

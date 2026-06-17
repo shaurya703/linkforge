@@ -23,6 +23,7 @@ type Config struct {
 	PostgresDSN      string
 	PostgresMaxConns int32
 
+	RedisURL    string // full redis://|rediss:// URL (managed providers); wins over RedisAddr
 	RedisAddr   string
 	RedisDB     int
 	CacheTTL    time.Duration
@@ -41,8 +42,11 @@ type Config struct {
 // values. It returns an error only when a present value is malformed.
 func Load() (Config, error) {
 	c := Config{
-		HTTPAddr:        env("HTTP_ADDR", ":8080"),
-		BaseURL:         env("BASE_URL", "http://localhost:8080"),
+		// PaaS platforms (Render, Railway, Fly, Heroku) inject $PORT and expect the
+		// process to bind it; HTTP_ADDR still wins when set explicitly.
+		HTTPAddr: env("HTTP_ADDR", defaultHTTPAddr()),
+		// Managed hosts expose the public URL; short links must use it, not localhost.
+		BaseURL:         env("BASE_URL", env("RENDER_EXTERNAL_URL", "http://localhost:8080")),
 		ReadTimeout:     envDur("READ_TIMEOUT", 5*time.Second),
 		WriteTimeout:    envDur("WRITE_TIMEOUT", 10*time.Second),
 		IdleTimeout:     envDur("IDLE_TIMEOUT", 60*time.Second),
@@ -51,6 +55,7 @@ func Load() (Config, error) {
 		PostgresDSN:      env("POSTGRES_DSN", "postgres://linkforge:linkforge@localhost:5432/linkforge?sslmode=disable"),
 		PostgresMaxConns: int32(envInt("POSTGRES_MAX_CONNS", 20)),
 
+		RedisURL:    env("REDIS_URL", ""),
 		RedisAddr:   env("REDIS_ADDR", "localhost:6379"),
 		RedisDB:     envInt("REDIS_DB", 0),
 		CacheTTL:    envDur("CACHE_TTL", time.Hour),
@@ -68,6 +73,15 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("rate limit rate and burst must be positive")
 	}
 	return c, nil
+}
+
+// defaultHTTPAddr derives the listen address from $PORT (the PaaS convention)
+// when HTTP_ADDR is unset, falling back to :8080 for local development.
+func defaultHTTPAddr() string {
+	if p, ok := os.LookupEnv("PORT"); ok && p != "" {
+		return ":" + p
+	}
+	return ":8080"
 }
 
 func env(key, def string) string {

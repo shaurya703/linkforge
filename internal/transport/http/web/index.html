@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>linkforge — fast URL shortener</title>
+<meta name="description" content="A production-minded URL shortener in Go: Redis cache-aside redirects, async analytics, rate-limited writes.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322C55E' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0F172A;
+    --surface: #1E293B;
+    --surface-2: #243449;
+    --border: #334155;
+    --text: #F8FAFC;
+    --muted: #94A3B8;
+    --accent: #22C55E;
+    --accent-hover: #16A34A;
+    --accent-ink: #052e16;
+    --danger: #F87171;
+    --radius: 12px;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    min-height: 100dvh;
+    /* subtle radial so the page isn't a flat slab */
+    background-image:
+      radial-gradient(60rem 40rem at 50% -10%, rgba(34,197,94,0.08), transparent 70%),
+      radial-gradient(40rem 30rem at 100% 0%, rgba(56,189,248,0.05), transparent 60%);
+    background-attachment: fixed;
+  }
+  a { color: inherit; }
+  .wrap { width: 100%; max-width: 600px; margin: 0 auto; padding: 24px 20px 64px; }
+
+  /* ---- header ---- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 40px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-weight: 600; font-size: 16px; letter-spacing: -0.5px; }
+  .brand svg { color: var(--accent); }
+  .ghlink {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 13px; color: var(--muted); text-decoration: none;
+    padding: 8px 12px; border: 1px solid var(--border); border-radius: 999px;
+    min-height: 38px; transition: color .2s ease, border-color .2s ease, background .2s ease;
+  }
+  .ghlink:hover { color: var(--text); border-color: var(--muted); background: var(--surface); }
+
+  /* ---- hero ---- */
+  .hero { margin-bottom: 28px; }
+  h1 {
+    font-size: clamp(26px, 6vw, 34px); line-height: 1.15; letter-spacing: -1px;
+    font-weight: 700; margin-bottom: 12px;
+  }
+  h1 .accent { color: var(--accent); }
+  .lede { color: var(--muted); font-size: 15px; max-width: 52ch; }
+  .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .chip {
+    font-family: var(--mono); font-size: 12px; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border);
+    padding: 6px 11px; border-radius: 999px; white-space: nowrap;
+  }
+  .chip b { color: var(--accent); font-weight: 600; }
+
+  /* ---- card ---- */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+  }
+  .card + .card { margin-top: 16px; }
+  .card-title {
+    font-family: var(--mono); font-size: 12px; text-transform: uppercase;
+    letter-spacing: 1.5px; color: var(--muted); margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+
+  label { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 6px; }
+  input, select {
+    width: 100%; font-family: var(--sans); font-size: 15px; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; min-height: 46px; transition: border-color .2s ease, box-shadow .2s ease;
+  }
+  input::placeholder { color: #64748B; }
+  input:focus-visible, select:focus-visible, a:focus-visible, button:focus-visible {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(34,197,94,0.25);
+  }
+  input[type="url"] { font-family: var(--mono); font-size: 14px; }
+
+  .row { display: flex; gap: 12px; }
+  .row > * { flex: 1; min-width: 0; }
+
+  details { margin-top: 12px; }
+  summary {
+    cursor: pointer; font-size: 13px; color: var(--muted); list-style: none;
+    display: inline-flex; align-items: center; gap: 6px; user-select: none;
+    padding: 4px 0; min-height: 28px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary .chev { transition: transform .2s ease; }
+  details[open] summary .chev { transform: rotate(90deg); }
+  summary:hover { color: var(--text); }
+  .advanced { margin-top: 14px; }
+
+  button.primary {
+    width: 100%; margin-top: 16px; cursor: pointer;
+    font-family: var(--sans); font-size: 15px; font-weight: 600;
+    color: var(--accent-ink); background: var(--accent);
+    border: none; border-radius: 10px; padding: 13px 16px; min-height: 48px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    transition: background .2s ease, opacity .2s ease;
+  }
+  button.primary:hover { background: var(--accent-hover); }
+  button.primary:disabled { opacity: .6; cursor: not-allowed; }
+
+  /* ---- result ---- */
+  .result { margin-top: 16px; display: none; }
+  .result.show { display: block; animation: rise .25s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .short-row {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--bg); border: 1px solid var(--accent);
+    border-radius: 10px; padding: 12px 14px;
+  }
+  .short-url {
+    font-family: var(--mono); font-size: 15px; color: var(--accent);
+    text-decoration: none; word-break: break-all; flex: 1; font-weight: 500;
+  }
+  .short-url:hover { text-decoration: underline; }
+  .icon-btn {
+    flex-shrink: 0; cursor: pointer; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 8px; color: var(--muted);
+    width: 40px; height: 40px; display: inline-flex; align-items: center; justify-content: center;
+    transition: color .2s ease, border-color .2s ease, background .2s ease;
+  }
+  .icon-btn:hover { color: var(--text); border-color: var(--muted); background: var(--surface); }
+  .meta { margin-top: 10px; font-size: 13px; color: var(--muted); word-break: break-all; }
+  .meta .long { color: #CBD5E1; }
+  .meta .exp { color: var(--accent); font-family: var(--mono); font-size: 12px; }
+
+  /* ---- stats output ---- */
+  .stats-grid { margin-top: 14px; display: none; }
+  .stats-grid.show { display: block; animation: rise .25s ease; }
+  .clicks-big { font-family: var(--mono); font-size: 40px; font-weight: 600; color: var(--accent); line-height: 1; }
+  .clicks-label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .kv { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; display: grid; gap: 8px; }
+  .kv div { display: flex; justify-content: space-between; gap: 16px; font-size: 13px; }
+  .kv .k { color: var(--muted); flex-shrink: 0; }
+  .kv .v { font-family: var(--mono); color: var(--text); text-align: right; word-break: break-all; }
+  .badge { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+
+  /* ---- error / toast ---- */
+  .err {
+    display: none; margin-top: 12px; font-size: 13px; color: var(--danger);
+    background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.3);
+    border-radius: 8px; padding: 10px 12px;
+  }
+  .err.show { display: block; }
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px);
+    background: var(--accent); color: var(--accent-ink); font-size: 13px; font-weight: 600;
+    padding: 9px 16px; border-radius: 999px; opacity: 0; pointer-events: none;
+    transition: opacity .2s ease, transform .2s ease; z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* spinner */
+  .spin { width: 16px; height: 16px; border: 2px solid rgba(5,46,22,0.35); border-top-color: var(--accent-ink); border-radius: 50%; animation: rot .7s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+
+  footer { margin-top: 32px; text-align: center; font-size: 12px; color: var(--muted); }
+  footer a { color: var(--muted); text-decoration: none; padding: 4px 8px; border-radius: 6px; transition: color .2s ease; }
+  footer a:hover { color: var(--text); }
+  footer .dot { opacity: .4; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+  @media (max-width: 460px) {
+    .row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <span class="brand" aria-label="linkforge">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+      </svg>
+      linkforge
+    </span>
+    <a class="ghlink" href="https://github.com/shaurya703/linkforge" target="_blank" rel="noopener" aria-label="View linkforge on GitHub">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a12 12 0 0 0-3.79 23.4c.6.1.82-.26.82-.58v-2.2c-3.34.72-4.04-1.6-4.04-1.6-.55-1.4-1.34-1.77-1.34-1.77-1.1-.75.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.84 2.8 1.3 3.49 1 .1-.78.42-1.3.76-1.6-2.67-.3-5.47-1.34-5.47-5.96 0-1.32.47-2.4 1.24-3.24-.13-.3-.54-1.53.12-3.2 0 0 1-.32 3.3 1.24a11.4 11.4 0 0 1 6 0c2.3-1.56 3.3-1.24 3.3-1.24.66 1.67.25 2.9.12 3.2.77.84 1.24 1.92 1.24 3.24 0 4.63-2.8 5.65-5.48 5.95.43.37.81 1.1.81 2.22v3.29c0 .32.22.69.83.57A12 12 0 0 0 12 .5Z"/></svg>
+      GitHub
+    </a>
+  </header>
+
+  <section class="hero">
+    <h1>Paste a URL.<br>Get a link that redirects in <span class="accent">~5 ms</span>.</h1>
+    <p class="lede">A production-minded URL shortener in Go — Redis cache-aside on the redirect hot path, async click analytics, and rate-limited writes.</p>
+    <div class="stats" aria-label="Benchmark results">
+      <span class="chip"><b>~26,500</b> req/s</span>
+      <span class="chip">p99 <b>5.4 ms</b></span>
+      <span class="chip"><b>99.99%</b> cache hits</span>
+      <span class="chip"><b>0</b> errors</span>
+    </div>
+  </section>
+
+  <!-- Shorten -->
+  <div class="card">
+    <div class="card-title">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+      Shorten a link
+    </div>
+    <form id="shortenForm" novalidate>
+      <label for="url">Long URL</label>
+      <input id="url" name="url" type="url" inputmode="url" autocomplete="off" spellcheck="false"
+             placeholder="https://example.com/a/very/long/path?with=params" required>
+
+      <details>
+        <summary>
+          <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          Advanced options
+        </summary>
+        <div class="advanced row">
+          <div>
+            <label for="alias">Custom alias</label>
+            <input id="alias" name="alias" type="text" autocomplete="off" spellcheck="false"
+                   placeholder="my-link" pattern="[A-Za-z0-9_-]{3,32}">
+          </div>
+          <div>
+            <label for="ttl">Expires after</label>
+            <select id="ttl" name="ttl">
+              <option value="0">Never</option>
+              <option value="3600">1 hour</option>
+              <option value="86400">1 day</option>
+              <option value="604800">7 days</option>
+              <option value="2592000">30 days</option>
+            </select>
+          </div>
+        </div>
+      </details>
+
+      <button class="primary" type="submit" id="shortenBtn">
+        <span id="shortenBtnLabel">Shorten</span>
+      </button>
+    </form>
+
+    <div class="err" id="shortenErr" role="alert"></div>
+
+    <div class="result" id="result" aria-live="polite">
+      <div class="short-row">
+        <a class="short-url" id="shortUrl" href="#" target="_blank" rel="noopener"></a>
+        <button class="icon-btn" id="copyBtn" type="button" aria-label="Copy short link" title="Copy">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+      </div>
+      <div class="meta">
+        <span class="long" id="resultLong"></span>
+        <span class="exp" id="resultExp"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="card">
+    <div class="card-title">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 14 4-4 4 4 5-5"/></svg>
+      Look up click stats
+    </div>
+    <form id="statsForm" novalidate>
+      <div class="row">
+        <input id="code" name="code" type="text" autocomplete="off" spellcheck="false"
+               placeholder="short code, e.g. aB3xZ" aria-label="Short code" style="flex:2">
+        <button class="primary" type="submit" id="statsBtn" style="margin-top:0; flex:1">
+          <span id="statsBtnLabel">Look up</span>
+        </button>
+      </div>
+    </form>
+
+    <div class="err" id="statsErr" role="alert"></div>
+
+    <div class="stats-grid" id="statsOut" aria-live="polite">
+      <div class="clicks-big" id="clicksCount">0</div>
+      <div class="clicks-label">total clicks</div>
+      <div class="kv">
+        <div><span class="k">Destination</span><span class="v" id="svLong"></span></div>
+        <div><span class="k">Created</span><span class="v" id="svCreated"></span></div>
+        <div><span class="k">Type</span><span class="v"><span class="badge" id="svType">generated</span></span></div>
+        <div id="svExpRow" style="display:none"><span class="k">Expires</span><span class="v" id="svExp"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Built in Go ·
+    <a href="https://github.com/shaurya703/linkforge" target="_blank" rel="noopener">source</a>
+    <span class="dot">·</span>
+    <a href="/healthz" target="_blank" rel="noopener">/healthz</a>
+    <span class="dot">·</span>
+    <a href="/metrics" target="_blank" rel="noopener">/metrics</a>
+  </footer>
+
+</div>
+
+<div class="toast" id="toast" role="status">Copied to clipboard</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function showErr(el, msg) { el.textContent = msg; el.classList.add("show"); }
+  function hideErr(el) { el.classList.remove("show"); }
+
+  function toast(msg) {
+    var t = $("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(t._timer);
+    t._timer = setTimeout(function () { t.classList.remove("show"); }, 1800);
+  }
+
+  function setLoading(btn, label, loading, idleText) {
+    btn.disabled = loading;
+    label.innerHTML = loading ? '<span class="spin" aria-hidden="true"></span>' : idleText;
+  }
+
+  function fmtDate(iso) {
+    try {
+      var d = new Date(iso);
+      return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) +
+             ", " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    } catch (e) { return iso; }
+  }
+
+  // Pull the human-readable message out of the API's {error, code} body.
+  async function errorMessage(res) {
+    try {
+      var body = await res.json();
+      if (body && body.error) return body.error;
+    } catch (e) { /* non-JSON */ }
+    return "Request failed (" + res.status + ")";
+  }
+
+  // ---- Shorten ----
+  var sForm = $("shortenForm"), sBtn = $("shortenBtn"), sLabel = $("shortenBtnLabel"), sErr = $("shortenErr");
+
+  sForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    hideErr(sErr);
+    var url = $("url").value.trim();
+    if (!url) { showErr(sErr, "Please enter a URL to shorten."); return; }
+
+    var payload = { url: url };
+    var alias = $("alias").value.trim();
+    if (alias) payload.alias = alias;
+    var ttl = parseInt($("ttl").value, 10);
+    if (ttl > 0) payload.ttl_seconds = ttl;
+
+    setLoading(sBtn, sLabel, true, "Shorten");
+    try {
+      var res = await fetch("/shorten", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) { showErr(sErr, await errorMessage(res)); return; }
+
+      var data = await res.json();
+      var link = $("shortUrl");
+      link.textContent = data.short_url;
+      link.href = data.short_url;
+      $("resultLong").textContent = data.long_url;
+      $("resultExp").textContent = data.expires_at ? "  ·  expires " + fmtDate(data.expires_at) : "";
+      $("result").classList.add("show");
+      $("copyBtn").dataset.url = data.short_url;
+    } catch (err) {
+      showErr(sErr, "Network error — is the service running?");
+    } finally {
+      setLoading(sBtn, sLabel, false, "Shorten");
+    }
+  });
+
+  // ---- Copy ----
+  $("copyBtn").addEventListener("click", function () {
+    var url = this.dataset.url;
+    if (!url) return;
+    var done = function () { toast("Copied to clipboard"); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done, function () { fallbackCopy(url); done(); });
+    } else { fallbackCopy(url); done(); }
+  });
+  function fallbackCopy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+
+  // ---- Stats ----
+  var stForm = $("statsForm"), stBtn = $("statsBtn"), stLabel = $("statsBtnLabel"), stErr = $("statsErr");
+
+  stForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    hideErr(stErr);
+    var code = $("code").value.trim().replace(/^.*\//, ""); // accept a full short URL too
+    if (!code) { showErr(stErr, "Enter a short code to look up."); return; }
+
+    setLoading(stBtn, stLabel, true, "Look up");
+    try {
+      var res = await fetch("/stats/" + encodeURIComponent(code));
+      if (!res.ok) { $("statsOut").classList.remove("show"); showErr(stErr, await errorMessage(res)); return; }
+
+      var d = await res.json();
+      $("clicksCount").textContent = (d.clicks || 0).toLocaleString();
+      $("svLong").textContent = d.long_url;
+      $("svCreated").textContent = fmtDate(d.created_at);
+      $("svType").textContent = d.custom ? "custom alias" : "generated";
+      if (d.expires_at) {
+        $("svExp").textContent = fmtDate(d.expires_at);
+        $("svExpRow").style.display = "flex";
+      } else {
+        $("svExpRow").style.display = "none";
+      }
+      $("statsOut").classList.add("show");
+    } catch (err) {
+      showErr(stErr, "Network error — is the service running?");
+    } finally {
+      setLoading(stBtn, stLabel, false, "Look up");
+    }
+  });
+})();
+</script>
+</body>
+</html>

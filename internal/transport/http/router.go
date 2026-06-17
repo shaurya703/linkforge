@@ -30,6 +30,10 @@ func NewRouter(d RouterDeps) http.Handler {
 	r.Use(RequestLogger(d.Logger))
 	r.Use(Metrics(d.Metrics))
 
+	// Landing page (self-contained embedded UI). Registered before the /{code}
+	// catch-all; chi matches the exact root "/" here and single segments below.
+	r.Get("/", d.Handlers.Index)
+
 	// Operational endpoints (no rate limit).
 	r.Get("/healthz", d.Handlers.Healthz)
 	r.Get("/readyz", readyHandler(d.Ready))

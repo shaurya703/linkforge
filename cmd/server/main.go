@@ -54,7 +54,7 @@ func run(log *slog.Logger) error {
 	}
 	defer pool.Close()
 
-	rdb, err := cache.NewClient(startCtx, cfg.RedisAddr, cfg.RedisDB)
+	rdb, err := cache.NewClient(startCtx, cfg.RedisURL, cfg.RedisAddr, cfg.RedisDB)
 	if err != nil {
 		return err
 	}
